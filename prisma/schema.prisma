@@ -1,0 +1,662 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// SaaS Core Models
+model Account {
+  id                String   @id @default(cuid())
+  name              String
+  slug              String   @unique
+  email             String   @unique
+  phone             String?
+  logo              String?
+  website           String?
+  industry          String?
+  size              String?  // SOLO, SMALL, MEDIUM, LARGE, ENTERPRISE
+  address           String?
+  city              String?
+  state             String?
+  pincode           String?
+  country           String?  @default("INDIA")
+  
+  // Subscription
+  subscriptionPlan   String   @default("FREE") // FREE, BASIC, PRO, ENTERPRISE
+  subscriptionStatus String  @default("ACTIVE") // ACTIVE, CANCELLED, EXPIRED, PENDING
+  subscriptionEndsAt DateTime?
+  
+  // Billing
+  billingEmail      String?
+  billingAddress   String?
+  billingCity      String?
+  billingState     String?
+  billingPincode   String?
+  billingCountry   String?  @default("INDIA")
+  gstin            String?
+  
+  // Usage & Limits
+  maxUsers          Int      @default(1)
+  maxStorage        Int      @default(100) // in MB
+  maxApiCalls       Int      @default(1000)
+  currentUsers      Int      @default(0)
+  currentStorage    Int      @default(0)
+  currentApiCalls   Int      @default(0)
+  
+  // Status
+  isActive          Boolean  @default(true)
+  isVerified        Boolean  @default(false)
+  onTrial           Boolean  @default(true)
+  trialEndsAt       DateTime?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  users             User[]
+  subscriptions      Subscription[]
+  invoices          Invoice[]
+  payments          Payment[]
+  features          AccountFeature[]
+  analytics         AccountAnalytics[]
+  eventLogs         EventLog[]
+  
+  @@map("accounts")
+}
+
+model Subscription {
+  id                String   @id @default(cuid())
+  accountId         String
+  account           Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  plan              String   // FREE, BASIC, PRO, ENTERPRISE
+  price             Float
+  currency          String   @default("INR")
+  interval          String   // MONTHLY, YEARLY
+  intervalCount     Int      @default(1)
+  
+  // Dates
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  trialEnd          DateTime?
+  
+  // Status
+  status            String   @default("ACTIVE") // ACTIVE, CANCELLED, EXPIRED, PAST_DUE
+  cancelAtPeriodEnd Boolean  @default(false)
+  
+  // Payment
+  paymentMethodId   String?
+  lastPaymentId     String?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id                String   @id @default(cuid())
+  accountId         String
+  account           Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  invoiceNumber     String   @unique
+  amount            Float
+  currency          String   @default("INR")
+  status            String   @default("DRAFT") // DRAFT, PENDING, PAID, CANCELLED, REFUNDED
+  
+  // Dates
+  invoiceDate       DateTime
+  dueDate           DateTime
+  paidAt            DateTime?
+  
+  // Items
+  items             InvoiceItem[]
+  
+  // Payment
+  paymentId         String?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id                String   @id @default(cuid())
+  invoiceId         String
+  invoice           Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  
+  description       String
+  quantity          Int      @default(1)
+  unitPrice         Float
+  amount            Float
+  
+  // Plan Info
+  plan              String?
+  interval          String?
+  
+  createdAt         DateTime @default(now())
+  
+  @@map("invoice_items")
+}
+
+model Payment {
+  id                String   @id @default(cuid())
+  accountId         String
+  account           Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  amount            Float
+  currency          String   @default("INR")
+  status            String   @default("PENDING") // PENDING, SUCCESS, FAILED, REFUNDED
+  
+  // Payment Gateway
+  gateway           String   // RAZORPAY, CASHFREE, STRIPE
+  gatewayId         String?
+  gatewayResponse   String?  // JSON
+  
+  // Invoice
+  invoiceId         String?
+  
+  // Dates
+  paidAt            DateTime?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@map("payments")
+}
+
+model AccountFeature {
+  id                String   @id @default(cuid())
+  accountId         String
+  account           Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  feature           String   // AI_ASSISTANT, ADVANCED_ANALYTICS, API_ACCESS, etc.
+  isEnabled         Boolean  @default(true)
+  limit             Int?     // Usage limit
+  currentUsage      Int      @default(0)
+  
+  expiresAt         DateTime?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@unique([accountId, feature])
+  @@map("account_features")
+}
+
+model AccountAnalytics {
+  id                String   @id @default(cuid())
+  accountId         String
+  account           Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  date              DateTime
+  metric            String   // ACTIVE_USERS, TAX_ENTRIES, API_CALLS, etc.
+  value             Float
+  
+  createdAt         DateTime @default(now())
+  
+  @@unique([accountId, date, metric])
+  @@map("account_analytics")
+}
+
+// User Models (Enhanced for SaaS)
+model User {
+  id                String   @id @default(cuid())
+  accountId         String?
+  account           Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  
+  email             String   @unique
+  phone             String?  @unique
+  name              String?
+  dateOfBirth       DateTime?
+  panNumber         String?  @unique
+  aadhaarNumber     String?  @unique
+  
+  // Authentication
+  password          String?
+  role              String   @default("USER") // USER, ADMIN, SUPER_ADMIN
+  status            String   @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  
+  // Verification
+  isVerified        Boolean  @default(false)
+  kycStatus         String   @default("PENDING") // PENDING, VERIFIED, REJECTED
+  emailVerifiedAt   DateTime?
+  phoneVerifiedAt   DateTime?
+  
+  // Preferences
+  preferredLanguage String   @default("EN") // EN, HI, etc.
+  timezone          String?  @default("Asia/Kolkata")
+  notifications     Json?    // Notification preferences
+  
+  // Last Activity
+  lastLoginAt       DateTime?
+  lastActivityAt    DateTime?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  profile           UserProfile?
+  taxEntries        TaxEntry[]
+  gstEntries        GSTEntry[]
+  fuelEntries       FuelEntry[]
+  propertyEntries   PropertyEntry[]
+  sessions          Session[]
+  posts             Post[]
+  comments          Comment[]
+  postLikes         PostLike[]
+  userNotifications Notification[]
+  eventLogs         EventLog[]
+  gstInvoices       GSTInvoice[]
+  
+  @@map("users")
+}
+
+model Session {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  sessionToken      String   @unique
+  userAgent         String?
+  ipAddress         String?
+  
+  // Status
+  isActive          Boolean  @default(true)
+  expiresAt         DateTime
+  
+  createdAt         DateTime @default(now())
+  
+  @@map("sessions")
+}
+
+model UserProfile {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Employment/Business Info
+  employmentType       String?  // SALARIED, SELF_EMPLOYED, BUSINESS, OTHER
+  employerName         String?
+  designation          String?
+  businessName         String?
+  businessType         String?
+  
+  // Address
+  addressLine1         String?
+  addressLine2         String?
+  city                 String?
+  state                String?
+  pincode              String?
+  
+  // Tax Preferences
+  taxRegime            String?  // OLD, NEW
+  taxSlab              String?
+  
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  @@map("user_profiles")
+}
+
+// Tax Entry Models (Enhanced)
+model TaxEntry {
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Tax Details
+  taxType              String   // INCOME_TAX, TDS, ADVANCE_TAX, SELF_ASSESSMENT
+  amount               Float
+  description          String?
+  category             String?  // SALARY, INTEREST, BUSINESS, CAPITAL_GAINS, OTHER
+  financialYear        String   // 2024-25
+  month                String?  // Jan, Feb, etc.
+  date                 DateTime
+  
+  // Source Details
+  source               String?  // SALARY, BANK_FD, INTEREST, DIVIDEND, etc.
+  sourceReference      String?  // Form-16, Bank Statement, etc.
+  
+  // Verification
+  isVerified           Boolean  @default(false)
+  verificationStatus   String   @default("PENDING") // PENDING, VERIFIED, REJECTED
+  
+  // AI Processing
+  aiProcessed          Boolean  @default(false)
+  aiInsights           Json?    // AI-generated insights
+  
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  @@map("tax_entries")
+}
+
+model GSTEntry {
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // GST Details
+  amount               Float
+  gstAmount            Float
+  cgstAmount           Float?
+  sgstAmount           Float?
+  igstAmount           Float?
+  cessAmount           Float?
+  
+  // Bill Details
+  billNumber           String?
+  billDate             DateTime?
+  supplierName         String?
+  supplierGSTIN        String?
+  
+  // Category
+  category             String?  // GROCERIES, ELECTRONICS, RESTAURANT, SERVICES, etc.
+  description          String?
+  
+  // Financial Year
+  financialYear        String   // 2024-25
+  month                String?  // Jan, Feb, etc.
+  date                 DateTime
+  
+  // Verification
+  isVerified           Boolean  @default(false)
+  verificationStatus   String   @default("PENDING") // PENDING, VERIFIED, REJECTED
+  
+  // AI Processing
+  aiProcessed          Boolean  @default(false)
+  aiCategory           String?  // AI-categorized tax type
+  
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  @@map("gst_entries")
+}
+
+model FuelEntry {
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Fuel Details
+  fuelType             String   // PETROL, DIESEL, CNG
+  quantity             Float    // in liters
+  amount               Float
+  taxAmount            Float
+  pricePerLiter        Float
+  
+  // Location
+  city                 String?
+  state                String?
+  
+  // Date
+  date                 DateTime
+  financialYear        String   // 2024-25
+  month                String?  // Jan, Feb, etc.
+  
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  @@map("fuel_entries")
+}
+
+model PropertyEntry {
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Property Details
+  propertyType         String   // RESIDENTIAL, COMMERCIAL, LAND, VEHICLE
+  taxType              String   // PROPERTY_TAX, MUNICIPAL_TAX, ROAD_TAX, STAMP_DUTY, REGISTRATION_FEE
+  amount               Float
+  
+  // Property Info
+  propertyAddress      String?
+  propertyCity         String?
+  propertyState        String?
+  
+  // Vehicle Specific
+  vehicleType          String?  // CAR, BIKE, TRUCK, etc.
+  vehicleNumber        String?
+  
+  // Date
+  date                 DateTime
+  financialYear        String   // 2024-25
+  month                String?  // Jan, Feb, etc.
+  
+  // Verification
+  isVerified           Boolean  @default(false)
+  verificationStatus   String   @default("PENDING") // PENDING, VERIFIED, REJECTED
+  
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  @@map("property_entries")
+}
+
+// Community & Social Features
+model Post {
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  title                String
+  content              String?
+  excerpt              String?
+  featuredImage        String?
+  
+  // Tax Category
+  taxCategory          String?  // INCOME_TAX, GST, PROPERTY_TAX, etc.
+  tags                 String?   // Comma-separated tags
+  
+  // Status
+  published            Boolean  @default(false)
+  status               String   @default("DRAFT") // DRAFT, PUBLISHED, ARCHIVED
+  
+  // Engagement
+  views                Int      @default(0)
+  shares               Int      @default(0)
+  
+  // Moderation
+  isFeatured           Boolean  @default(false)
+  isPinned             Boolean  @default(false)
+  
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  // Relations
+  comments             Comment[]
+  postLikes            PostLike[]
+  
+  @@map("posts")
+}
+
+model Comment {
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId               String
+  post                 Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  
+  content              String
+  parentId             String?  // For nested comments
+  
+  // Status
+  isApproved           Boolean  @default(true)
+  
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  @@map("comments")
+}
+
+model PostLike {
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId               String
+  post                 Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  
+  createdAt            DateTime @default(now())
+  
+  @@unique([userId, postId])
+  @@map("post_likes")
+}
+
+// Notification System
+model Notification {
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type                 String   // TAX_DEADLINE, PAYMENT_REMINDER, SYSTEM_UPDATE, etc.
+  title                String
+  message              String
+  data                 Json?    // Additional data
+  
+  // Status
+  isRead               Boolean  @default(false)
+  isReadAt             DateTime?
+  
+  // Delivery
+  emailSent           Boolean  @default(false)
+  smsSent             Boolean  @default(false)
+  pushSent            Boolean  @default(false)
+  
+  createdAt            DateTime @default(now())
+  
+  @@map("notifications")
+}
+
+// Webhook Log Model
+model WebhookLog {
+  id                   String   @id @default(cuid())
+  
+  provider             String   // razorpay, cashfree
+  eventType            String   // payment.captured, payment.failed, etc.
+  payload              String   // JSON payload
+  success              Boolean  // Whether webhook was processed successfully
+  
+  timestamp            DateTime @default(now())
+  
+  @@map("webhook_logs")
+}
+
+// GST Invoice Models
+model GSTInvoice {
+  id                   String   @id @default(cuid())
+  
+  // Invoice Details
+  invoiceNumber        String   @unique
+  invoiceDate          DateTime
+  dueDate              DateTime
+  
+  // Customer Information
+  customerName         String
+  customerEmail        String
+  customerPhone        String
+  customerAddress     String
+  customerGSTIN        String?
+  
+  // Business Information
+  businessName         String
+  businessAddress      String
+  businessGSTIN        String
+  
+  // Totals
+  subtotal             Float
+  cgstAmount           Float
+  sgstAmount           Float
+  igstAmount           Float
+  cessAmount           Float
+  totalAmount          Float
+  
+  // Payment Information
+  paymentStatus        String   @default("DRAFT") // DRAFT, PENDING, PAID, CANCELLED
+  paymentMethod       String?
+  paymentId           String?
+  
+  // Tax Information
+  placeOfSupply       String
+  reverseCharge       Boolean  @default(false)
+  
+  // Relations
+  customerId          String
+  customer            User     @relation(fields: [customerId], references: [id])
+  items               GSTInvoiceItem[]
+  
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  @@map("gst_invoices")
+}
+
+model GSTInvoiceItem {
+  id                   String   @id @default(cuid())
+  
+  invoiceId            String
+  invoice              GSTInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  
+  // Item Details
+  description          String
+  hsnCode              String?
+  sacCode              String?
+  quantity             Float
+  unitPrice            Float
+  discount             Float?   @default(0)
+  
+  // Tax Rates
+  cgstRate             Float    @default(0)
+  sgstRate             Float    @default(0)
+  igstRate             Float    @default(0)
+  cessRate             Float    @default(0)
+  
+  // Amounts
+  taxableAmount        Float
+  cgstAmount           Float
+  sgstAmount           Float
+  igstAmount           Float
+  cessAmount           Float
+  totalAmount          Float
+  
+  createdAt            DateTime @default(now())
+  
+  @@map("gst_invoice_items")
+}
+
+// Event Logging System
+model EventLog {
+  id                   String   @id @default(cuid())
+  
+  // Event Details
+  eventType            String
+  userId               String?
+  accountId            String?
+  
+  // Event Data
+  properties           Json     // Event properties and metadata
+  
+  // Request Info
+  ipAddress            String?
+  userAgent            String?
+  sessionId            String?
+  
+  // Relations
+  user                 User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  account              Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  
+  createdAt            DateTime @default(now())
+  
+  @@map("event_logs")
+}
